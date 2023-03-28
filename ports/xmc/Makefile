@@ -1,3 +1,10 @@
+BOARD ?= KIT_XMC47_RELAX_V1
+BOARD_DIR = boards/$(BOARD)
+
+ifeq ($(wildcard $(BOARD_DIR)/.),)
+  $(error Invalid BOARD specified)
+endif
+
 include ../../py/mkenv.mk
 
 CROSS = 0
@@ -9,27 +16,24 @@ QSTR_DEFS = qstrdefsport.h
 MICROPY_ROM_TEXT_COMPRESSION ?= 1
 
 # include py core make definitions
+include ../../py/mkenv.mk
 include $(TOP)/py/py.mk
 
-ifeq ($(CROSS), 1)
+# we are only cross compiling since target is always XMC
 CROSS_COMPILE ?= arm-none-eabi-
-endif
 
 INC += -I.
 INC += -I$(TOP)
 INC += -I$(BUILD)
 
-ifeq ($(CROSS), 1)
-DFU = $(TOP)/tools/dfu.py
-PYDFU = $(TOP)/tools/pydfu.py
-CFLAGS_CORTEX_M4 = -mthumb -mtune=cortex-m4 -mcpu=cortex-m4 -msoft-float -fsingle-precision-constant -Wdouble-promotion -Wfloat-conversion
-CFLAGS += $(INC) -Wall -Werror -std=c99 -nostdlib $(CFLAGS_CORTEX_M4) $(COPT)
-LDFLAGS += -nostdlib -T stm32f405.ld -Map=$@.map --cref --gc-sections
-else
-LD = $(CC)
-CFLAGS += $(INC) -Wall -Werror -Wdouble-promotion -Wfloat-conversion -std=c99 $(COPT)
+LD = arm-none-eabi-gcc
+CFLAGS_CORTEX_M4 = -mthumb -mtune=cortex-m4 -mcpu=cortex-m4 -msoft-float -fsingle-precision-constant -Wdouble-promotion -Wfloat-conversion -UMICROPY_USE_INTERNAL_PRINTF
+
+CFLAGS += $(INC) -Wall -Werror -Wdouble-promotion -Wfloat-conversion -std=c99 $(CFLAGS_CORTEX_M4) $(COPT)
+CFLAGS += BOARD_CFLAGS
+
 LDFLAGS += -Wl,-Map=$@.map,--cref -Wl,--gc-sections
-endif
+
 
 CSUPEROPT = -Os # save some code space
 
@@ -50,11 +54,12 @@ LIBS =
 SRC_C = \
 	main.c \
 	uart_core.c \
-	shared/libc/printf.c \
+	\
 	shared/readline/readline.c \
 	shared/runtime/pyexec.c \
 	shared/runtime/stdout_helpers.c \
-	$(BUILD)/_frozen_mpy.c \
+#	\
+#	$(BUILD)/_frozen_mpy.c \
 
 ifeq ($(CROSS), 1)
 SRC_C += shared/libc/string0.c
@@ -65,12 +70,10 @@ SRC_QSTR += shared/readline/readline.c shared/runtime/pyexec.c
 OBJ += $(PY_CORE_O)
 OBJ += $(addprefix $(BUILD)/, $(SRC_C:.c=.o))
 OBJ += $(addprefix $(BUILD)/, $(SRC_CXX:.cpp=.o))
+OBJ += BOARD_OBJS
 
-ifeq ($(CROSS), 1)
-all: $(BUILD)/firmware.dfu
-else
+
 all: $(BUILD)/firmware.elf
-endif
 
 $(BUILD)/_frozen_mpy.c: $(TOP)/tests/frozen/frozentest.mpy $(BUILD)/genhdr/qstrdefs.generated.h
 	$(ECHO) "MISC freezing bytecode"
@@ -102,5 +105,8 @@ run:
 
 test: $(BUILD)/firmware.elf
 	$(Q)/bin/echo -e "print('hello world!', list(x+1 for x in range(10)), end='eol\\\\n')\\r\\n\\x04" | $(BUILD)/firmware.elf | tail -n2 | grep "^hello world! \\[1, 2, 3, 4, 5, 6, 7, 8, 9, 10\\]eol"
+
+# include adapter makefile
+include $(BOARD_DIR)/Makefile
 
 include $(TOP)/py/mkrules.mk
