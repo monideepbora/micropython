@@ -20,25 +20,25 @@ include ../../py/mkenv.mk
 include $(TOP)/py/py.mk
 
 # we are only cross compiling since target is always XMC
-CROSS_COMPILE ?= arm-none-eabi-
+CROSS_COMPILE ?= ~/personal_work/binaries/gcc-arm-11.2-2022.02-x86_64-arm-none-eabi/bin/arm-none-eabi-
 
 INC += -I.
 INC += -I$(TOP)
 INC += -I$(BUILD)
+INC += $(BOARD_INC)
 
-LD = arm-none-eabi-gcc
+LD = ~/personal_work/binaries/gcc-arm-11.2-2022.02-x86_64-arm-none-eabi/bin/arm-none-eabi-gcc
 CFLAGS_CORTEX_M4 = -mthumb -mtune=cortex-m4 -mcpu=cortex-m4 -msoft-float -fsingle-precision-constant -Wdouble-promotion -Wfloat-conversion -UMICROPY_USE_INTERNAL_PRINTF
 
 CFLAGS += $(INC) -Wall -Werror -Wdouble-promotion -Wfloat-conversion -std=c99 $(CFLAGS_CORTEX_M4) $(COPT)
-CFLAGS += BOARD_CFLAGS
+CFLAGS += $(BOARD_CFLAGS)
 
-LDFLAGS += -Wl,-Map=$@.map,--cref -Wl,--gc-sections
-
+LDFLAGS += -Wl,--cref -Wl,--gc-sections
 
 CSUPEROPT = -Os # save some code space
 
 # Tune for Debugging or Optimization
-CFLAGS += -g  # always include debug info in the ELF
+#CFLAGS += -g  # always include debug info in the ELF
 ifeq ($(DEBUG), 1)
 CFLAGS += -O0
 else
@@ -57,23 +57,21 @@ SRC_C = \
 	\
 	shared/readline/readline.c \
 	shared/runtime/pyexec.c \
-	shared/runtime/stdout_helpers.c \
-#	\
-#	$(BUILD)/_frozen_mpy.c \
+	shared/runtime/stdout_helpers.c
+#	
+#	$(BUILD)/_frozen_mpy.c 
 
-ifeq ($(CROSS), 1)
 SRC_C += shared/libc/string0.c
-endif
 
 SRC_QSTR += shared/readline/readline.c shared/runtime/pyexec.c
 
 OBJ += $(PY_CORE_O)
 OBJ += $(addprefix $(BUILD)/, $(SRC_C:.c=.o))
 OBJ += $(addprefix $(BUILD)/, $(SRC_CXX:.cpp=.o))
-OBJ += BOARD_OBJS
+OBJ += $(BOARD_OBJS)
 
 
-all: $(BUILD)/firmware.elf
+all: $(BUILD)/firmware.hex
 
 $(BUILD)/_frozen_mpy.c: $(TOP)/tests/frozen/frozentest.mpy $(BUILD)/genhdr/qstrdefs.generated.h
 	$(ECHO) "MISC freezing bytecode"
@@ -81,30 +79,11 @@ $(BUILD)/_frozen_mpy.c: $(TOP)/tests/frozen/frozentest.mpy $(BUILD)/genhdr/qstrd
 
 $(BUILD)/firmware.elf: $(OBJ)
 	$(ECHO) "LINK $@"
-	$(Q)$(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
+	$(Q)$(LD) $(LDFLAGS) -o $@ $^
 	$(Q)$(SIZE) $@
 
-$(BUILD)/firmware.bin: $(BUILD)/firmware.elf
-	$(Q)$(OBJCOPY) -O binary -j .isr_vector -j .text -j .data $^ $(BUILD)/firmware.bin
-
-$(BUILD)/firmware.dfu: $(BUILD)/firmware.bin
-	$(ECHO) "Create $@"
-	$(Q)$(PYTHON) $(DFU) -b 0x08000000:$(BUILD)/firmware.bin $@
-
-deploy: $(BUILD)/firmware.dfu
-	$(ECHO) "Writing $< to the board"
-	$(Q)$(PYTHON) $(PYDFU) -u $<
-
-# Run emulation build on a POSIX system with suitable terminal settings
-run:
-	@saved_=`stty -g`; \
-	  stty raw opost -echo; \
-	  $(BUILD)/firmware.elf; \
-	  echo "Exit status: $$?"; \
-	  stty $$saved_
-
-test: $(BUILD)/firmware.elf
-	$(Q)/bin/echo -e "print('hello world!', list(x+1 for x in range(10)), end='eol\\\\n')\\r\\n\\x04" | $(BUILD)/firmware.elf | tail -n2 | grep "^hello world! \\[1, 2, 3, 4, 5, 6, 7, 8, 9, 10\\]eol"
+$(BUILD)/firmware.hex: $(BUILD)/firmware.elf
+	$(Q)$(OBJCOPY) -O ihex $^ $@
 
 # include adapter makefile
 include $(BOARD_DIR)/Makefile
